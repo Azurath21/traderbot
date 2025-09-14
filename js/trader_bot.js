@@ -1,6 +1,5 @@
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('traderBotForm').addEventListener('submit', handleTraderBotSubmit);
-    document.getElementById('fetchDataBtn').addEventListener('click', handleFetchDataOnly);
 });
 
 async function handleTraderBotSubmit(e) {
@@ -229,11 +228,13 @@ function analyzeStockLocal(stockData) {
     const total = buySignals + sellSignals;
     const buyPercentage = (buySignals / total) * 100;
     
-    if (buyPercentage >= 70) recommendation = 'Strong Buy';
-    else if (buyPercentage >= 55) recommendation = 'Buy';
-    else if (buyPercentage >= 45) recommendation = 'Neutral';
-    else if (buyPercentage >= 30) recommendation = 'Sell';
-    else recommendation = 'Strong Sell';
+    if (buyPercentage >= 70) recommendation = 'STRONG_BUY';
+    else if (buyPercentage >= 55) recommendation = 'BUY';
+    else if (buyPercentage >= 45) recommendation = 'WEAK_BUY';
+    else if (buyPercentage >= 30) recommendation = 'NEUTRAL';
+    else if (buyPercentage >= 20) recommendation = 'WEAK_SELL';
+    else if (buyPercentage >= 10) recommendation = 'SELL';
+    else recommendation = 'STRONG_SELL';
     
     return {
         recommendation: recommendation,
@@ -329,203 +330,77 @@ function showRecommendation(data) {
     const text = document.getElementById('recommendationText');
     const details = document.getElementById('recommendationDetails');
     
-    // Remove existing classes
+    // Remove all recommendation classes
     card.className = 'recommendation-card';
     
-    // Set recommendation based on overall signal
-    const recommendation = data.recommendation ? data.recommendation.toLowerCase() : 'neutral';
+    let iconHtml = '';
+    let recommendationText = '';
+    let cssClass = '';
     
-    if (recommendation.includes('buy')) {
-        card.classList.add('recommendation-buy');
-        icon.innerHTML = '<i class="fas fa-arrow-up fa-3x mb-3"></i>';
-        
-        if (recommendation === 'strong buy') {
-            text.innerHTML = '<strong>STRONG BUY SIGNAL</strong>';
-        } else if (recommendation === 'weak buy') {
-            text.innerHTML = '<strong>WEAK BUY SIGNAL</strong>';
-        } else {
-            text.innerHTML = '<strong>BUY SIGNAL</strong>';
-        }
-    } else if (recommendation.includes('sell')) {
-        card.classList.add('recommendation-sell');
-        icon.innerHTML = '<i class="fas fa-arrow-down fa-3x mb-3"></i>';
-        
-        if (recommendation === 'strong sell') {
-            text.innerHTML = '<strong>STRONG SELL SIGNAL</strong>';
-        } else if (recommendation === 'weak sell') {
-            text.innerHTML = '<strong>WEAK SELL SIGNAL</strong>';
-        } else {
-            text.innerHTML = '<strong>SELL SIGNAL</strong>';
-        }
-    } else {
-        card.classList.add('recommendation-neutral');
-        icon.innerHTML = '<i class="fas fa-minus fa-3x mb-3"></i>';
-        text.innerHTML = '<strong>NEUTRAL</strong>';
+    const recommendation = data.recommendation || 'NEUTRAL';
+    
+    switch (recommendation) {
+        case 'STRONG_BUY':
+            iconHtml = '<i class="fas fa-rocket fa-3x mb-3" style="color: #28a745;"></i>';
+            recommendationText = 'STRONG BUY';
+            cssClass = 'recommendation-strong-buy';
+            break;
+        case 'BUY':
+            iconHtml = '<i class="fas fa-arrow-up fa-3x mb-3" style="color: #28a745;"></i>';
+            recommendationText = 'BUY';
+            cssClass = 'recommendation-buy';
+            break;
+        case 'WEAK_BUY':
+            iconHtml = '<i class="fas fa-thumbs-up fa-3x mb-3" style="color: #20c997;"></i>';
+            recommendationText = 'WEAK BUY';
+            cssClass = 'recommendation-weak-buy';
+            break;
+        case 'NEUTRAL':
+            iconHtml = '<i class="fas fa-minus fa-3x mb-3" style="color: #6c757d;"></i>';
+            recommendationText = 'NEUTRAL';
+            cssClass = 'recommendation-neutral';
+            break;
+        case 'WEAK_SELL':
+            iconHtml = '<i class="fas fa-thumbs-down fa-3x mb-3" style="color: #fd7e14;"></i>';
+            recommendationText = 'WEAK SELL';
+            cssClass = 'recommendation-weak-sell';
+            break;
+        case 'SELL':
+            iconHtml = '<i class="fas fa-arrow-down fa-3x mb-3" style="color: #dc3545;"></i>';
+            recommendationText = 'SELL';
+            cssClass = 'recommendation-sell';
+            break;
+        case 'STRONG_SELL':
+            iconHtml = '<i class="fas fa-exclamation-triangle fa-3x mb-3" style="color: #dc3545;"></i>';
+            recommendationText = 'STRONG SELL';
+            cssClass = 'recommendation-strong-sell';
+            break;
+        default:
+            iconHtml = '<i class="fas fa-question fa-3x mb-3" style="color: #6c757d;"></i>';
+            recommendationText = 'UNKNOWN';
+            cssClass = 'recommendation-neutral';
     }
     
-    // Add details with new weighted scoring system
-    const buySignals = data.buy_signals || 0;
-    const sellSignals = data.sell_signals || 0;
-    const totalSignals = buySignals + sellSignals;
+    card.classList.add(cssClass);
+    icon.innerHTML = iconHtml;
+    text.innerHTML = `<strong>${recommendationText}</strong><br><span style="font-size: 0.9em;">${data.ticker || 'Stock'} - $${data.current_price ? data.current_price.toFixed(2) : 'N/A'}</span>`;
     
-    // Calculate correct percentages
-    const buyPercentage = totalSignals > 0 ? Math.round((buySignals / totalSignals) * 100 * 10) / 10 : 0;
-    const sellPercentage = totalSignals > 0 ? Math.round((sellSignals / totalSignals) * 100 * 10) / 10 : 0;
+    let detailsHtml = '';
+    if (data.gemini_analysis) {
+        detailsHtml = data.gemini_analysis.replace(/\n/g, '<br>');
+    } else {
+        detailsHtml = `Analysis based on ${data.data_points || 'N/A'} data points over ${data.timeframe || 'selected'} period.`;
+        if (data.price_change_percent !== undefined) {
+            detailsHtml += `<br>Price change: ${data.price_change_percent >= 0 ? '+' : ''}${data.price_change_percent.toFixed(2)}%`;
+        }
+    }
     
-    // Format Gemini analysis text
-    const formattedGeminiAnalysis = formatGeminiText(data.gemini_analysis);
-    
-    details.innerHTML = `
-        <div><strong>Technical Analysis Summary:</strong></div>
-        <div>Buy Signals: ${buySignals}/${totalSignals} (${buyPercentage}%)</div>
-        <div>Sell Signals: ${sellSignals}/${totalSignals} (${sellPercentage}%)</div>
-        ${data.gemini_analysis ? `
-        <div style="margin-top: 15px; padding: 10px; background-color: rgba(255,255,255,0.1); border-radius: 5px;">
-            <div><strong>🤖 AI Analysis:</strong></div>
-            <div style="margin-top: 8px; font-size: 0.9em; line-height: 1.5;">${formattedGeminiAnalysis}</div>
-        </div>
-        ` : ''}
-    `;
-    
+    details.innerHTML = detailsHtml;
     card.style.display = 'block';
 }
 
 function hideRecommendation() {
     document.getElementById('recommendationCard').style.display = 'none';
-}
-
-async function handleFetchDataOnly() {
-    const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
-    const timeframe = document.getElementById('timeframeSelect').value;
-    
-    if (!ticker) {
-        showError('Please enter a stock ticker symbol');
-        return;
-    }
-    
-    showLoading();
-    hideError();
-    hideRecommendation();
-    
-    try {
-        // Check if running locally - improved detection
-        const isLocal = window.location.hostname === 'localhost' || 
-                       window.location.hostname === '127.0.0.1' ||
-                       window.location.hostname === '' ||
-                       window.location.protocol === 'file:' ||
-                       window.location.port === '8000' ||
-                       !window.location.hostname.includes('netlify.app');
-        
-        console.log(`DEBUG: Environment detection - hostname: ${window.location.hostname}, port: ${window.location.port}, protocol: ${window.location.protocol}`);
-        console.log(`DEBUG: Detected as local: ${isLocal}`);
-        
-        if (isLocal) {
-            console.log(`DEBUG: Running in LOCAL mode - using Yahoo Finance directly`);
-            // Local development - fetch data directly and do basic analysis
-            const stockData = await fetchStockDataLocal(ticker, timeframe);
-            showStockData(stockData, ticker, timeframe);
-        } else {
-            console.log(`DEBUG: Running in PRODUCTION mode - using Netlify functions`);
-            // Production - use Netlify function
-            const response = await fetch('/.netlify/functions/trader-recommendation', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ticker: ticker,
-                    timeframe: timeframe
-                })
-            });
-            
-            if (!response.ok) {
-                const errorDetails = await getDetailedErrorMessage(response, ticker);
-                throw new Error(errorDetails);
-            }
-            
-            const text = await response.text();
-            if (!text) {
-                throw new Error(`Empty Response Error: The server returned no data for ${ticker}. This could indicate:\n• Server overload or maintenance\n• Network connectivity issues\n• Invalid API configuration\n\nPlease try again in a few moments.`);
-            }
-            
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch (parseError) {
-                console.error('JSON Parse Error:', parseError);
-                console.error('Response text:', text);
-                throw new Error(`Data Format Error: Unable to parse server response for ${ticker}.\n\nTechnical Details:\n• Parse Error: ${parseError.message}\n• Response Length: ${text.length} characters\n• Response Preview: ${text.substring(0, 100)}...\n\nThis usually indicates a server-side error. Please try again or contact support if the issue persists.`);
-            }
-            
-            if (data.error) {
-                throw new Error(`Server Error: ${data.error}\n\nThis error was returned by the analysis service. Please verify the stock symbol and try again.`);
-            }
-            
-            showStockData(data, ticker, timeframe);
-        }
-        
-    } catch (error) {
-        console.error('Error:', error);
-        hideLoading();
-        showError(error.message || 'An unexpected error occurred while analyzing the stock. Please try again.');
-    }
-}
-
-function showStockData(data, ticker, timeframe) {
-    const card = document.getElementById('stockDataCard');
-    const details = document.getElementById('stockDataDetails');
-    
-    hideRecommendation(); // Hide recommendation card when showing stock data
-    card.style.display = 'block';
-    
-    // For local mode, data is raw stock data
-    if (data.timestamps) {
-        const latestClose = data.close.filter(price => price !== null);
-        const currentPrice = latestClose[latestClose.length - 1];
-        const firstPrice = latestClose[0];
-        const priceChange = currentPrice - firstPrice;
-        const priceChangePercent = ((priceChange / firstPrice) * 100).toFixed(2);
-        
-        details.innerHTML = `
-            <div><strong>📊 Raw Stock Data for ${ticker} (${timeframe}):</strong></div>
-            <div style="margin-top: 10px;">
-                <div>📈 Current Price: $${currentPrice?.toFixed(2) || 'N/A'}</div>
-                <div>📊 Data Points: ${data.timestamps.length}</div>
-                <div>🔄 Price Change: ${priceChange > 0 ? '+' : ''}${priceChange?.toFixed(2)} (${priceChangePercent}%)</div>
-                <div>📅 Date Range: ${new Date(data.timestamps[0] * 1000).toLocaleDateString()} - ${new Date(data.timestamps[data.timestamps.length - 1] * 1000).toLocaleDateString()}</div>
-            </div>
-            <div style="margin-top: 15px; padding: 10px; background-color: rgba(255,255,255,0.1); border-radius: 5px;">
-                <div><strong>✅ Yahoo Finance API Test Results:</strong></div>
-                <div style="margin-top: 8px; font-size: 0.9em;">
-                    <div>• API Response: ✅ Success</div>
-                    <div>• Data Quality: ✅ Valid OHLCV data</div>
-                    <div>• Timestamps: ✅ ${data.timestamps.length} data points</div>
-                    <div>• Price Data: ✅ Complete</div>
-                    <div>• Volume Data: ✅ Available</div>
-                </div>
-            </div>
-        `;
-    } else {
-        // For production mode, data is analysis result
-        details.innerHTML = `
-            <div><strong>📊 Analysis Data for ${ticker} (${timeframe}):</strong></div>
-            <div style="margin-top: 10px;">
-                <div>🎯 Recommendation: ${data.recommendation || 'N/A'}</div>
-                <div>📈 Buy Signals: ${data.buy_signals || 0}</div>
-                <div>📉 Sell Signals: ${data.sell_signals || 0}</div>
-                <div>💰 Current Price: $${data.current_price?.toFixed(2) || 'N/A'}</div>
-            </div>
-            <div style="margin-top: 15px; padding: 10px; background-color: rgba(255,255,255,0.1); border-radius: 5px;">
-                <div><strong>✅ Netlify Function Test Results:</strong></div>
-                <div style="margin-top: 8px; font-size: 0.9em;">
-                    <div>• Function Response: ✅ Success</div>
-                    <div>• Yahoo Finance API: ✅ Working</div>
-                    <div>• Technical Analysis: ✅ Complete</div>
-                    <div>• AI Analysis: ${data.gemini_analysis ? '✅ Working' : '⚠️ Limited'}</div>
-                </div>
-            </div>
-        `;
-    }
 }
 
 async function fetchStockDataLocal(ticker, timeframe) {

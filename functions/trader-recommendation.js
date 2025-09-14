@@ -287,6 +287,108 @@ exports.handler = async (event, context) => {
       if (currentPrice > avgRecent * 1.02) recommendation = 'BUY';
       else if (currentPrice < avgRecent * 0.98) recommendation = 'SELL';
 
+      // Enhanced Technical Indicator Calculations
+      function calculateSMA(data, period) {
+        if (data.length < period) return null;
+        const sum = data.slice(-period).reduce((a, b) => a + b, 0);
+        return sum / period;
+      }
+
+      function calculateEMA(data, period) {
+        if (data.length < period) return null;
+        const multiplier = 2 / (period + 1);
+        let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+        
+        for (let i = period; i < data.length; i++) {
+          ema = (data[i] * multiplier) + (ema * (1 - multiplier));
+        }
+        return ema;
+      }
+
+      function calculateRSI(data, period = 14) {
+        if (data.length < period + 1) return null;
+        
+        let gains = 0, losses = 0;
+        for (let i = 1; i <= period; i++) {
+          const change = data[data.length - i] - data[data.length - i - 1];
+          if (change > 0) gains += change;
+          else losses -= change;
+        }
+        
+        const avgGain = gains / period;
+        const avgLoss = losses / period;
+        const rs = avgGain / avgLoss;
+        return 100 - (100 / (1 + rs));
+      }
+
+      function calculateStochastic(highs, lows, closes, kPeriod = 14, dPeriod = 3) {
+        if (closes.length < kPeriod) return null;
+        
+        const recentHighs = highs.slice(-kPeriod);
+        const recentLows = lows.slice(-kPeriod);
+        const currentClose = closes[closes.length - 1];
+        
+        const highestHigh = Math.max(...recentHighs);
+        const lowestLow = Math.min(...recentLows);
+        
+        const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
+        return { k, d: k }; // Simplified D calculation
+      }
+
+      function calculateMACD(data, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+        if (data.length < slowPeriod) return null;
+        
+        const emaFast = calculateEMA(data, fastPeriod);
+        const emaSlow = calculateEMA(data, slowPeriod);
+        const macdLine = emaFast - emaSlow;
+        
+        return { macd: macdLine, signal: macdLine, histogram: 0 };
+      }
+
+      function calculateBollingerBands(data, period = 20, stdDev = 2) {
+        if (data.length < period) return null;
+        
+        const sma = calculateSMA(data, period);
+        const recentData = data.slice(-period);
+        const variance = recentData.reduce((sum, val) => sum + Math.pow(val - sma, 2), 0) / period;
+        const standardDeviation = Math.sqrt(variance);
+        
+        return {
+          upper: sma + (standardDeviation * stdDev),
+          middle: sma,
+          lower: sma - (standardDeviation * stdDev)
+        };
+      }
+
+      function calculateATR(highs, lows, closes, period = 14) {
+        if (highs.length < period + 1) return null;
+        
+        let trSum = 0;
+        for (let i = 1; i <= period; i++) {
+          const idx = highs.length - i;
+          const high = highs[idx];
+          const low = lows[idx];
+          const prevClose = closes[idx - 1];
+          
+          const tr = Math.max(
+            high - low,
+            Math.abs(high - prevClose),
+            Math.abs(low - prevClose)
+          );
+          trSum += tr;
+        }
+        
+        return trSum / period;
+      }
+
+      const sma = calculateSMA(stockData.map(d => d.close), 20);
+      const ema = calculateEMA(stockData.map(d => d.close), 20);
+      const rsi = calculateRSI(stockData.map(d => d.close));
+      const stochastic = calculateStochastic(stockData.map(d => d.high), stockData.map(d => d.low), stockData.map(d => d.close));
+      const macd = calculateMACD(stockData.map(d => d.close));
+      const bollingerBands = calculateBollingerBands(stockData.map(d => d.close));
+      const atr = calculateATR(stockData.map(d => d.high), stockData.map(d => d.low), stockData.map(d => d.close));
+
       try {
         return {
           statusCode: 200,
@@ -305,7 +407,16 @@ exports.handler = async (event, context) => {
             company_name: data.chart.result[0].meta.longName || ticker.toUpperCase(),
             gemini_analysis: `📊 Stock Data Retrieved Successfully!\n\n${data.chart.result[0].meta.longName || ticker} is trading at $${currentPrice.toFixed(2)} (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent}%). Based on ${stockData.length} data points over ${timeframe}, showing ${recommendation.toLowerCase()} signal.`,
             buy_signals: recommendation === 'BUY' ? 3 : recommendation === 'SELL' ? 1 : 2,
-            sell_signals: recommendation === 'SELL' ? 3 : recommendation === 'BUY' ? 1 : 2
+            sell_signals: recommendation === 'SELL' ? 3 : recommendation === 'BUY' ? 1 : 2,
+            technical_indicators: {
+              sma: sma,
+              ema: ema,
+              rsi: rsi,
+              stochastic: stochastic,
+              macd: macd,
+              bollinger_bands: bollingerBands,
+              atr: atr
+            }
           })
         };
       } catch (error) {

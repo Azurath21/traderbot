@@ -93,6 +93,30 @@
             color: white;
         }
         
+        .recommendation-strong-buy {
+            background: linear-gradient(135deg, #155724 0%, #28a745 100%);
+            color: white;
+            border: 2px solid #28a745;
+        }
+        
+        .recommendation-weak-buy {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            opacity: 0.8;
+        }
+        
+        .recommendation-weak-sell {
+            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
+            color: white;
+            opacity: 0.8;
+        }
+        
+        .recommendation-strong-sell {
+            background: linear-gradient(135deg, #721c24 0%, #dc3545 100%);
+            color: white;
+            border: 2px solid #dc3545;
+        }
+        
         .loading-spinner {
             display: none;
             margin-top: 20px;
@@ -147,9 +171,6 @@
                     <button type="submit" class="btn analyze-btn">
                         <i class="fas fa-robot me-2"></i>Analyze Stock
                     </button>
-                    <button type="button" class="btn btn-outline-primary ms-3" id="fetchDataBtn">
-                        <i class="fas fa-download me-2"></i>Fetch Data Only
-                    </button>
                 </form>
                 
                 <!-- Loading Spinner -->
@@ -168,13 +189,6 @@
                     <div id="recommendationIcon"></div>
                     <div id="recommendationText"></div>
                     <div class="recommendation-details" id="recommendationDetails"></div>
-                </div>
-                
-                <!-- Stock Data Display Card -->
-                <div class="recommendation-card" id="stockDataCard" style="display: none; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
-                    <div><i class="fas fa-chart-line fa-2x mb-3"></i></div>
-                    <div><strong>STOCK DATA FETCHED</strong></div>
-                    <div class="recommendation-details" id="stockDataDetails"></div>
                 </div>
             </div>
         </div>
