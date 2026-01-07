@@ -1,0 +1,9 @@
+# Local Netlify folder
+.netlify
+
+# Python cache
+__pycache__/
+*.pyc
+
+# LSTM cached models (too large for git)
+cached_models/

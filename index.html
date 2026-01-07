@@ -3,192 +3,570 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Trader Bot</title>
+    <title>AI Trader Bot - Technical Analysis</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        :root {
+            --buy-color: #2D5A27;
+            --sell-color: #A63D2F;
+            --neutral-color: #8B7355;
+            --gold: #B8960C;
+            --gold-dark: #8B7209;
+            --gold-light: #D4AF37;
+            --cream: #FFFEF5;
+            --cream-dark: #F5F0E1;
+            --green: #2D5A27;
+            --green-light: #4A7C43;
+        }
         body {
-            background: linear-gradient(135deg, #f5f5dc 0%, #daa520 30%, #228b22 100%);
+            background: var(--cream);
             min-height: 100vh;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            color: #2D2D2D;
         }
-        
-        .trader-bot-container {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            padding: 60px;
-            margin: 40px auto;
-            max-width: 800px;
+        .main-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
             text-align: center;
+            padding: 30px 0;
+            border-bottom: 2px solid var(--gold);
+            margin-bottom: 30px;
         }
-        
-        .logo-container {
-            margin-bottom: 40px;
+        .header img {
+            max-width: 150px;
+            margin-bottom: 15px;
         }
-        
-        .trader-bot-logo {
-            max-width: 300px;
-            height: auto;
-            filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.1));
+        .header h1 {
+            color: var(--gold-dark);
+            font-size: 1.8rem;
+            margin-bottom: 5px;
         }
-        
-        .search-container {
-            background: #f8f9fa;
-            border-radius: 15px;
-            padding: 40px;
-            margin-top: 30px;
+        .header p {
+            color: var(--green);
+            font-size: 0.9rem;
         }
-        
-        .search-input {
-            font-size: 1.2rem;
-            padding: 15px 20px;
-            border: 2px solid #e9ecef;
-            border-radius: 10px;
-            margin-bottom: 20px;
+        .search-section {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 30px;
+            border: 1px solid var(--gold);
         }
-        
-        .search-input:focus {
-            border-color: #228b22;
-            box-shadow: 0 0 0 0.2rem rgba(34, 139, 34, 0.25);
+        .search-input, .search-select {
+            background: #fff;
+            border: 1px solid var(--gold);
+            color: #2D2D2D;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 1rem;
         }
-        
+        .search-input:focus, .search-select:focus {
+            background: #fff;
+            border-color: var(--green);
+            color: #2D2D2D;
+            box-shadow: 0 0 0 2px rgba(45, 90, 39, 0.2);
+        }
+        .search-input::placeholder { color: #8B7355; }
         .analyze-btn {
-            background: linear-gradient(135deg, #228b22 0%, #daa520 100%);
+            background: var(--gold);
             border: none;
-            padding: 15px 40px;
-            font-size: 1.1rem;
+            padding: 12px 30px;
+            font-size: 1rem;
             font-weight: 600;
-            border-radius: 10px;
+            border-radius: 6px;
             color: white;
-            transition: all 0.3s ease;
+            transition: background 0.2s;
         }
-        
         .analyze-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(34, 139, 34, 0.3);
-        }
-        
-        .recommendation-card {
-            margin-top: 30px;
-            padding: 30px;
-            border-radius: 15px;
-            font-size: 1.2rem;
-            font-weight: 600;
-            display: none;
-        }
-        
-        .recommendation-buy {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            background: var(--gold-dark);
             color: white;
         }
-        
-        .recommendation-sell {
-            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
-            color: white;
-        }
-        
-        .recommendation-neutral {
-            background: linear-gradient(135deg, #6c757d 0%, #adb5bd 100%);
-            color: white;
-        }
-        
-        .recommendation-strong-buy {
-            background: linear-gradient(135deg, #155724 0%, #28a745 100%);
-            color: white;
-            border: 2px solid #28a745;
-        }
-        
-        .recommendation-weak-buy {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            color: white;
-            opacity: 0.8;
-        }
-        
-        .recommendation-weak-sell {
-            background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%);
-            color: white;
-            opacity: 0.8;
-        }
-        
-        .recommendation-strong-sell {
-            background: linear-gradient(135deg, #721c24 0%, #dc3545 100%);
-            color: white;
-            border: 2px solid #dc3545;
-        }
-        
         .loading-spinner {
             display: none;
-            margin-top: 20px;
+            text-align: center;
+            padding: 40px;
         }
-        
         .error-message {
-            background: #f8d7da;
-            color: #721c24;
+            background: rgba(166, 61, 47, 0.1);
+            border: 1px solid var(--sell-color);
+            color: var(--sell-color);
             padding: 15px;
-            border-radius: 10px;
+            border-radius: 6px;
             margin-top: 20px;
             display: none;
         }
-        
-        .recommendation-details {
-            margin-top: 15px;
-            font-size: 0.9rem;
+        .results-section {
+            display: none;
+        }
+        /* LSTM Prediction Section */
+        .lstm-prediction {
+            background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 30px;
+            color: white;
+            display: none;
+        }
+        .lstm-prediction.loading {
+            display: block;
+            text-align: center;
+        }
+        .lstm-prediction.loaded {
+            display: block;
+        }
+        .lstm-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+        .lstm-header i {
+            font-size: 1.3rem;
+        }
+        .lstm-content {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        .lstm-stat {
+            background: rgba(255,255,255,0.15);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        .lstm-stat-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
             opacity: 0.9;
+            margin-bottom: 5px;
+        }
+        .lstm-stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .lstm-stat-value.up { color: #90EE90; }
+        .lstm-stat-value.down { color: #FFB6B6; }
+        .lstm-direction {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .lstm-direction-arrow {
+            font-size: 2rem;
+        }
+        .lstm-direction-arrow.up { color: #90EE90; }
+        .lstm-direction-arrow.down { color: #FFB6B6; }
+        .lstm-strength {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .lstm-strength.strong { background: rgba(144,238,144,0.3); color: #90EE90; }
+        .lstm-strength.moderate { background: rgba(255,255,255,0.2); color: white; }
+        .lstm-strength.weak { background: rgba(255,182,182,0.3); color: #FFB6B6; }
+        .lstm-meta {
+            margin-top: 15px;
+            font-size: 0.75rem;
+            opacity: 0.8;
+            text-align: center;
+        }
+        .gauge-container {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+        .gauge-card {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            padding: 25px;
+            text-align: center;
+            min-width: 200px;
+            border: 1px solid var(--gold);
+        }
+        .gauge-card h3 {
+            font-size: 0.85rem;
+            color: var(--gold-dark);
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+        .gauge {
+            width: 150px;
+            height: 75px;
+            position: relative;
+            margin: 0 auto 15px;
+        }
+        .gauge-bg {
+            width: 150px;
+            height: 75px;
+            border-radius: 75px 75px 0 0;
+            background: linear-gradient(90deg, var(--sell-color) 0%, var(--sell-color) 20%, #D4A03A 20%, #D4A03A 40%, var(--neutral-color) 40%, var(--neutral-color) 60%, var(--green-light) 60%, var(--green-light) 80%, var(--green) 80%, var(--green) 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        .gauge-center {
+            width: 110px;
+            height: 55px;
+            background: var(--cream-dark);
+            border-radius: 55px 55px 0 0;
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+        .gauge-needle {
+            width: 4px;
+            height: 50px;
+            background: var(--gold-dark);
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform-origin: bottom center;
+            transform: translateX(-50%) rotate(0deg);
+            border-radius: 2px;
+            transition: transform 0.5s ease-out;
+        }
+        .gauge-label {
+            display: inline-block;
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .label-strong-sell { background: var(--sell-color); color: #fff; }
+        .label-sell { background: #D4A03A; color: #2D2D2D; }
+        .label-neutral { background: var(--neutral-color); color: #fff; }
+        .label-buy { background: var(--green-light); color: #fff; }
+        .label-strong-buy { background: var(--green); color: #fff; }
+        .summary-row {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            padding: 20px 25px;
+            margin-bottom: 30px;
+            border: 1px solid var(--gold);
+        }
+        .summary-row h2 {
+            font-size: 1.1rem;
+            margin-bottom: 15px;
+            color: var(--gold-dark);
+        }
+        .summary-row .summary-label {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        .summary-stats {
+            display: flex;
+            gap: 30px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+        .summary-stats span { color: var(--neutral-color); }
+        .summary-stats .buy-count { color: var(--buy-color); }
+        .summary-stats .sell-count { color: var(--sell-color); }
+        .summary-stats .neutral-count { color: var(--neutral-color); }
+        .section-card {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            margin-bottom: 25px;
+            border: 1px solid var(--gold);
+        }
+        .section-header {
+            padding: 20px 25px;
+            border-bottom: 1px solid var(--gold);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header h3 {
+            font-size: 1rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--gold-dark);
+        }
+        .section-summary {
+            font-size: 0.85rem;
+            color: var(--neutral-color);
+        }
+        .section-summary .label { margin-right: 15px; }
+        .indicator-table {
+            width: 100%;
+        }
+        .indicator-table th {
+            padding: 12px 25px;
+            text-align: left;
+            font-weight: 500;
+            font-size: 0.8rem;
+            color: var(--gold-dark);
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--gold);
+        }
+        .indicator-table td {
+            padding: 14px 25px;
+            border-bottom: 1px solid rgba(184, 150, 12, 0.3);
+            font-size: 0.9rem;
+        }
+        .indicator-table tr:last-child td { border-bottom: none; }
+        .indicator-table .name { font-weight: 500; }
+        .indicator-table .value { color: var(--neutral-color); }
+        .indicator-table .action-buy { color: var(--buy-color); font-weight: 500; }
+        .indicator-table .action-sell { color: var(--sell-color); font-weight: 500; }
+        .indicator-table .action-neutral { color: var(--neutral-color); font-weight: 500; }
+        .ai-analysis {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+            border: 1px solid var(--gold);
+        }
+        .ai-analysis h3 {
+            font-size: 1rem;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--gold-dark);
+        }
+        .ai-analysis-content {
+            line-height: 1.7;
+            color: #4A4A4A;
+            white-space: pre-wrap;
+        }
+        .stock-info {
+            background: var(--cream-dark);
+            border-radius: 8px;
+            padding: 20px 25px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            border: 1px solid var(--gold);
+        }
+        .stock-info .ticker {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--gold-dark);
+        }
+        .stock-info .price {
+            font-size: 1.3rem;
+        }
+        .stock-info .change.positive { color: var(--buy-color); }
+        .stock-info .change.negative { color: var(--sell-color); }
+        .stock-info .meta {
+            font-size: 0.85rem;
+            color: var(--neutral-color);
+        }
+        @media (max-width: 768px) {
+            .gauge-container { gap: 20px; }
+            .gauge-card { min-width: 100%; }
+            .summary-stats { flex-wrap: wrap; gap: 15px; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="trader-bot-container">
-            <!-- Logo Section -->
-            <div class="logo-container">
-                <img src="traderbot.png" alt="Trader Bot" class="trader-bot-logo">
-                <h1 class="mt-3 mb-2" style="color: #333; font-weight: 700;">AI Trader Bot</h1>
-                <p class="text-muted">Get instant buy, sell, or neutral recommendations based on advanced technical analysis</p>
-            </div>
-            
-            <!-- Search Section -->
-            <div class="search-container">
-                <form id="traderBotForm">
-                    <div class="row mb-3">
-                        <div class="col-md-8">
-                            <input type="text" 
-                                   class="form-control search-input" 
-                                   id="tickerInput" 
-                                   placeholder="Enter stock ticker (e.g., AAPL, TSLA, MSFT)" 
-                                   required>
-                        </div>
-                        <div class="col-md-4">
-                            <select class="form-control search-input" id="timeframeSelect">
-                                <option value="3m">3 Months</option>
-                                <option value="1y" selected>1 Year</option>
-                                <option value="5y">5 Years</option>
-                                <option value="all">All Time</option>
-                            </select>
-                        </div>
+    <div class="main-container">
+        <div class="header">
+            <img src="traderbot.png" alt="Trader Bot">
+            <h1>AI Trader Bot</h1>
+            <p>Advanced Technical Analysis with AI-Powered Insights</p>
+        </div>
+
+        <div class="search-section">
+            <form id="traderBotForm" onsubmit="return false;">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label text-muted small">Stock Ticker</label>
+                        <input type="text" class="form-control search-input" id="tickerInput" 
+                               placeholder="e.g., AAPL, TSLA, MSFT" required>
                     </div>
-                    <button type="submit" class="btn analyze-btn">
-                        <i class="fas fa-robot me-2"></i>Analyze Stock
-                    </button>
-                </form>
-                
-                <!-- Loading Spinner -->
-                <div class="loading-spinner">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Analyzing...</span>
+                    <div class="col-md-4">
+                        <label class="form-label text-muted small">Timeframe</label>
+                        <select class="form-control search-select" id="timeframeSelect">
+                            <option value="3mo">3 Months</option>
+                            <option value="1y" selected>1 Year</option>
+                            <option value="5y">5 Years</option>
+                            <option value="max">All Time</option>
+                        </select>
                     </div>
-                    <p class="mt-2 text-muted">Analyzing market data...</p>
+                    <div class="col-md-3">
+                        <button type="button" id="analyzeBtn" class="btn analyze-btn w-100">
+                            <i class="fas fa-chart-line me-2"></i>Analyze
+                        </button>
+                    </div>
                 </div>
-                
-                <!-- Error Message -->
-                <div class="error-message" id="errorMessage"></div>
-                
-                <!-- Recommendation Card -->
-                <div class="recommendation-card" id="recommendationCard">
-                    <div id="recommendationIcon"></div>
-                    <div id="recommendationText"></div>
-                    <div class="recommendation-details" id="recommendationDetails"></div>
+            </form>
+        </div>
+
+        <div class="loading-spinner" id="loadingSpinner">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-3 text-muted">Fetching data and calculating indicators...</p>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="results-section" id="resultsSection">
+            <div class="lstm-prediction" id="lstmPrediction">
+                <div class="lstm-header">
+                    <i class="fas fa-brain"></i>
+                    <span>LSTM AI Price Prediction (5-Day Forecast)</span>
+                </div>
+                <div class="lstm-content" id="lstmContent">
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Direction</div>
+                        <div class="lstm-direction">
+                            <i class="fas fa-arrow-up lstm-direction-arrow up" id="lstmArrow"></i>
+                            <span class="lstm-stat-value up" id="lstmDirection">UP</span>
+                        </div>
+                    </div>
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Current Price</div>
+                        <div class="lstm-stat-value" id="lstmCurrentPrice">$0.00</div>
+                    </div>
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Target Price</div>
+                        <div class="lstm-stat-value up" id="lstmTargetPrice">$0.00</div>
+                    </div>
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Predicted Change</div>
+                        <div class="lstm-stat-value up" id="lstmChange">+0.00%</div>
+                    </div>
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Confidence</div>
+                        <div class="lstm-stat-value" id="lstmConfidence">0%</div>
+                    </div>
+                    <div class="lstm-stat">
+                        <div class="lstm-stat-label">Signal Strength</div>
+                        <span class="lstm-strength moderate" id="lstmStrength">MODERATE</span>
+                    </div>
+                </div>
+                <div class="lstm-meta" id="lstmMeta">
+                    Model Accuracy: --% | AUC: -- | Trained: --
+                </div>
+            </div>
+
+            <div class="stock-info" id="stockInfo">
+                <div>
+                    <span class="ticker" id="tickerDisplay">AAPL</span>
+                    <span class="meta" id="companyName">Apple Inc.</span>
+                </div>
+                <div class="text-end">
+                    <div class="price" id="currentPrice">$0.00</div>
+                    <div class="change" id="priceChange">+0.00 (0.00%)</div>
+                </div>
+                <div class="meta" id="dataInfo">Data points: 0 | Updated: --</div>
+            </div>
+
+            <div class="gauge-container">
+                <div class="gauge-card">
+                    <h3>Technical Indicators</h3>
+                    <div class="gauge">
+                        <div class="gauge-bg">
+                            <div class="gauge-center"></div>
+                            <div class="gauge-needle" id="techNeedle"></div>
+                        </div>
+                    </div>
+                    <span class="gauge-label" id="techLabel">Neutral</span>
+                </div>
+                <div class="gauge-card">
+                    <h3>Summary</h3>
+                    <div class="gauge">
+                        <div class="gauge-bg">
+                            <div class="gauge-center"></div>
+                            <div class="gauge-needle" id="summaryNeedle"></div>
+                        </div>
+                    </div>
+                    <span class="gauge-label" id="summaryLabel">Neutral</span>
+                </div>
+                <div class="gauge-card">
+                    <h3>Moving Averages</h3>
+                    <div class="gauge">
+                        <div class="gauge-bg">
+                            <div class="gauge-center"></div>
+                            <div class="gauge-needle" id="maNeedle"></div>
+                        </div>
+                    </div>
+                    <span class="gauge-label" id="maLabel">Neutral</span>
+                </div>
+            </div>
+
+            <div class="summary-row">
+                <h2>Summary: <span class="summary-label" id="overallSummary">Neutral</span></h2>
+                <div class="summary-stats">
+                    <div>Moving Averages: <span id="maSummaryLabel">Neutral</span></div>
+                    <div>Buy: <span class="buy-count" id="maBuyCount">0</span></div>
+                    <div>Sell: <span class="sell-count" id="maSellCount">0</span></div>
+                </div>
+                <div class="summary-stats" style="margin-top: 5px;">
+                    <div>Technical Indicators: <span id="techSummaryLabel">Neutral</span></div>
+                    <div>Buy: <span class="buy-count" id="techBuyCount">0</span></div>
+                    <div>Neutral: <span class="neutral-count" id="techNeutralCount">0</span></div>
+                    <div>Sell: <span class="sell-count" id="techSellCount">0</span></div>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <div class="section-header">
+                    <h3><i class="fas fa-chart-line me-2"></i>Moving Averages</h3>
+                    <div class="section-summary">
+                        <span class="label">Summary: <strong id="maTableSummary">Neutral</strong></span>
+                        <span>Buy: <span class="buy-count" id="maTableBuy">0</span></span>
+                        <span>Sell: <span class="sell-count" id="maTableSell">0</span></span>
+                    </div>
+                </div>
+                <table class="indicator-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Simple</th>
+                            <th>Action</th>
+                            <th>Exponential</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="maTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="section-card">
+                <div class="section-header">
+                    <h3><i class="fas fa-cogs me-2"></i>Technical Indicators</h3>
+                    <div class="section-summary">
+                        <span class="label">Summary: <strong id="techTableSummary">Neutral</strong></span>
+                        <span>Buy: <span class="buy-count" id="techTableBuy">0</span></span>
+                        <span>Neutral: <span class="neutral-count" id="techTableNeutral">0</span></span>
+                        <span>Sell: <span class="sell-count" id="techTableSell">0</span></span>
+                    </div>
+                </div>
+                <table class="indicator-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Value</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="techTableBody"></tbody>
+                </table>
+            </div>
+
+            <div class="ai-analysis">
+                <h3><i class="fas fa-robot me-2"></i>AI Analysis (Gemini 2.5 Flash)</h3>
+                <div class="ai-analysis-content" id="aiAnalysisContent">
+                    Loading AI analysis...
                 </div>
             </div>
         </div>

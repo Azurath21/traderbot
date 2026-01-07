@@ -1,10 +1,17 @@
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('traderBotForm').addEventListener('submit', handleTraderBotSubmit);
+const GEMINI_API_KEY = 'AIzaSyBFChF21jntZY8Jt0gpAn5JQcZPz7weYtA';
+const LSTM_API_URL = '';
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('analyzeBtn').addEventListener('click', handleAnalysis);
+    document.getElementById('tickerInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAnalysis();
+        }
+    });
 });
 
-async function handleTraderBotSubmit(e) {
-    e.preventDefault();
-    
+async function handleAnalysis() {
     const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
     const timeframe = document.getElementById('timeframeSelect').value;
     
@@ -15,502 +22,548 @@ async function handleTraderBotSubmit(e) {
     
     showLoading();
     hideError();
-    hideRecommendation();
+    hideResults();
+    hideLstmPrediction();
     
     try {
-        // Check if running locally - improved detection
-        const isLocal = window.location.hostname === 'localhost' || 
-                       window.location.hostname === '127.0.0.1' ||
-                       window.location.hostname === '' ||
-                       window.location.protocol === 'file:' ||
-                       window.location.port === '8000' ||
-                       !window.location.hostname.includes('netlify.app');
+        const [stockData, lstmPrediction] = await Promise.all([
+            fetchYahooFinanceData(ticker, timeframe),
+            fetchLstmPrediction(ticker)
+        ]);
         
-        console.log(`DEBUG: Environment detection - hostname: ${window.location.hostname}, port: ${window.location.port}, protocol: ${window.location.protocol}`);
-        console.log(`DEBUG: Detected as local: ${isLocal}`);
+        const analysis = calculateAllIndicators(stockData);
+        const aiExplanation = await getGeminiAnalysis(ticker, analysis, stockData, lstmPrediction);
         
-        if (isLocal) {
-            console.log(`DEBUG: Running in LOCAL mode - using Yahoo Finance directly`);
-            // Local development - fetch data directly and do basic analysis
-            const stockData = await fetchStockDataLocal(ticker, timeframe);
-            const analysis = analyzeStockLocal(stockData);
-            
-            hideLoading();
-            showRecommendation(analysis);
-        } else {
-            console.log(`DEBUG: Running in PRODUCTION mode - using Netlify functions`);
-            // Production - use Netlify function
-            const response = await fetch('/.netlify/functions/trader-recommendation', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    ticker: ticker,
-                    timeframe: timeframe
-                })
-            });
-            
-            if (!response.ok) {
-                const errorDetails = await getDetailedErrorMessage(response, ticker);
-                throw new Error(errorDetails);
-            }
-            
-            const text = await response.text();
-            if (!text) {
-                throw new Error(`Empty Response Error: The server returned no data for ${ticker}. This could indicate:\n• Server overload or maintenance\n• Network connectivity issues\n• Invalid API configuration\n\nPlease try again in a few moments.`);
-            }
-            
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch (parseError) {
-                console.error('JSON Parse Error:', parseError);
-                console.error('Response text:', text);
-                throw new Error(`Data Format Error: Unable to parse server response for ${ticker}.\n\nTechnical Details:\n• Parse Error: ${parseError.message}\n• Response Length: ${text.length} characters\n• Response Preview: ${text.substring(0, 100)}...\n\nThis usually indicates a server-side error. Please try again or contact support if the issue persists.`);
-            }
-            
-            if (data.error) {
-                throw new Error(`Server Error: ${data.error}\n\nThis error was returned by the analysis service. Please verify the stock symbol and try again.`);
-            }
-            
-            hideLoading();
-            showRecommendation(data);
+        displayResults(ticker, stockData, analysis, aiExplanation);
+        if (lstmPrediction) {
+            displayLstmPrediction(lstmPrediction);
+        }
+        hideLoading();
+        showResults();
+    } catch (error) {
+        console.error('Analysis error:', error);
+        hideLoading();
+        showError(error.message);
+    }
+}
+
+async function fetchLstmPrediction(ticker) {
+    try {
+        const response = await fetch(`${LSTM_API_URL}/api/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticker: ticker })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            console.warn('LSTM API error:', error);
+            return null;
         }
         
+        return await response.json();
     } catch (error) {
-        console.error('Error:', error);
-        hideLoading();
-        showError(error.message || 'An unexpected error occurred while analyzing the stock. Please try again.');
+        console.warn('LSTM API not available:', error.message);
+        return null;
     }
 }
 
-async function getDetailedErrorMessage(response, ticker) {
-    const status = response.status;
-    const statusText = response.statusText;
+function displayLstmPrediction(prediction) {
+    const container = document.getElementById('lstmPrediction');
+    const isUp = prediction.direction === 'UP';
     
-    let responseText = '';
-    try {
-        responseText = await response.text();
-    } catch (e) {
-        responseText = 'Unable to read error details';
-    }
+    const arrow = document.getElementById('lstmArrow');
+    arrow.className = `fas fa-arrow-${isUp ? 'up' : 'down'} lstm-direction-arrow ${isUp ? 'up' : 'down'}`;
     
-    // Add debug information to help identify the issue
-    console.error(`DEBUG ERROR ANALYSIS:`);
-    console.error(`- Status: ${status} ${statusText}`);
-    console.error(`- URL attempted: ${response.url}`);
-    console.error(`- Response headers:`, [...response.headers.entries()]);
-    console.error(`- Response text length: ${responseText.length}`);
-    console.error(`- Response preview:`, responseText.substring(0, 500));
-    console.error(`- Current location: ${window.location.href}`);
-    console.error(`- Environment check: hostname=${window.location.hostname}, port=${window.location.port}`);
+    const directionEl = document.getElementById('lstmDirection');
+    directionEl.textContent = prediction.direction;
+    directionEl.className = `lstm-stat-value ${isUp ? 'up' : 'down'}`;
     
-    // Check if this is a Netlify 404 page
-    if (responseText.includes('Page not found') && responseText.includes('netlify.com')) {
-        return `ENVIRONMENT ERROR: Trying to call Netlify function while running locally!\n\n🔧 DEBUG INFORMATION:\n• Current URL: ${window.location.href}\n• Attempted API call: ${response.url}\n• Status: ${status} ${statusText}\n• Environment: ${window.location.hostname}:${window.location.port}\n\n❌ ISSUE IDENTIFIED:\nYou're running a local server (python -m http.server) but the code is trying to call Netlify functions.\n\n✅ SOLUTION:\nThe environment detection failed. This should be running in LOCAL mode using Yahoo Finance directly.\n\n🐛 TECHNICAL DETAILS:\n• Hostname: ${window.location.hostname}\n• Port: ${window.location.port}\n• Protocol: ${window.location.protocol}\n• Should detect as local: ${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.port === '8000'}\n\nPlease refresh the page and try again. If this persists, there's a bug in the environment detection logic.`;
-    }
+    document.getElementById('lstmCurrentPrice').textContent = `$${prediction.current_price.toFixed(2)}`;
     
-    switch (status) {
-        case 400:
-            return `Bad Request (HTTP 400): Invalid request for ${ticker}.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nPossible causes:\n• Invalid stock ticker symbol\n• Malformed request parameters\n• Missing required data\n\nSuggestions:\n• Verify the ticker symbol is correct (e.g., AAPL, TSLA)\n• Try a different timeframe\n• Check for special characters in the symbol\n\nServer Response: ${responseText || statusText}`;
-            
-        case 401:
-            return `Authentication Error (HTTP 401): Unauthorized access.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nThis indicates:\n• Missing or invalid API key configuration\n• Expired authentication credentials\n• Insufficient permissions\n\nThis is likely a server configuration issue. Please contact the administrator.\n\nServer Response: ${responseText || statusText}`;
-            
-        case 403:
-            return `Access Forbidden (HTTP 403): Request denied for ${ticker}.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nPossible reasons:\n• API rate limit exceeded\n• Restricted access to this stock symbol\n• Geographic restrictions\n• Service temporarily unavailable\n\nSuggestions:\n• Wait a few minutes and try again\n• Try a different stock symbol\n• Check if the market is open\n\nServer Response: ${responseText || statusText}`;
-            
-        case 404:
-            return `Not Found (HTTP 404): Resource not available for ${ticker}.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Current location: ${window.location.href}\n• Response type: ${responseText.includes('netlify') ? 'Netlify 404 page' : 'API 404 response'}\n• Response preview: ${responseText.substring(0, 300)}...\n\n${responseText.includes('Page not found') ? '❌ ENVIRONMENT ISSUE: This is a Netlify 404 page, indicating the function endpoint does not exist or you are running locally but the code thinks it is in production.' : 'API ISSUE: The requested resource was not found.'}\n\nDetailed Analysis:\n• The requested stock symbol may not exist\n• The API endpoint is not properly configured\n• The symbol may be delisted or suspended\n• Regional market data may be unavailable\n\nTroubleshooting Steps:\n1. Verify ticker symbol spelling (e.g., AAPL not APPL)\n2. Check if it's a valid publicly traded company\n3. Try major symbols like AAPL, MSFT, GOOGL\n4. Ensure the company trades on supported exchanges\n\nCommon Issues:\n• Using company name instead of ticker (use AAPL not Apple)\n• Incorrect exchange suffix (some symbols need .TO, .L, etc.)\n• Cryptocurrency symbols (try BTC-USD instead of BTC)\n• Penny stocks or OTC markets may not be supported\n\nServer Response: ${responseText || statusText}`;
-            
-        case 429:
-            return `Rate Limit Exceeded (HTTP 429): Too many requests.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nDetails:\n• API request limit has been reached\n• This is a temporary restriction\n• Requests are being throttled for fair usage\n\nSolutions:\n• Wait 1-2 minutes before trying again\n• Avoid rapid successive requests\n• Consider upgrading API plan if this persists\n\nServer Response: ${responseText || statusText}`;
-            
-        case 500:
-            return `Internal Server Error (HTTP 500): Server malfunction.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n• Timestamp: ${new Date().toISOString()}\n\nThis indicates:\n• Temporary server-side issue\n• Database connectivity problems\n• Processing error in the analysis engine\n• Third-party API failure (Yahoo Finance, Gemini AI)\n\nRecommended Actions:\n1. Wait 2-3 minutes and retry\n2. Try a different stock symbol\n3. Check if the issue persists across multiple symbols\n4. Report to support if error continues\n\nTechnical Details:\n• Error Code: ${status}\n• Timestamp: ${new Date().toISOString()}\n• Symbol: ${ticker}\n\nServer Response: ${responseText || statusText}`;
-            
-        case 502:
-            return `Bad Gateway (HTTP 502): Service connectivity issue.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nExplanation:\n• The server received an invalid response from upstream service\n• Yahoo Finance API may be temporarily unavailable\n• Network routing problems\n• Load balancer configuration issues\n\nNext Steps:\n• This is usually temporary - try again in 2-3 minutes\n• Check if Yahoo Finance is experiencing outages\n• Try during market hours for better reliability\n\nServer Response: ${responseText || statusText}`;
-            
-        case 503:
-            return `Service Unavailable (HTTP 503): Temporary service outage.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nCurrent Status:\n• The analysis service is temporarily down\n• Scheduled maintenance may be in progress\n• High traffic causing service degradation\n• Infrastructure scaling in progress\n\nWhat to do:\n1. Wait 5-10 minutes and try again\n2. Check service status page if available\n3. Try during off-peak hours\n4. Monitor for service restoration announcements\n\nServer Response: ${responseText || statusText}`;
-            
-        case 504:
-            return `Gateway Timeout (HTTP 504): Request processing timeout.\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Response: ${responseText.substring(0, 200)}...\n\nAnalysis:\n• The request took too long to process\n• Yahoo Finance API response was slow\n• Gemini AI analysis timed out\n• Network latency issues\n\nSolutions:\n• Try a shorter timeframe (5m instead of 2y)\n• Retry with a more liquid stock (AAPL, MSFT)\n• Wait for better network conditions\n• Try during market hours when data is fresher\n\nServer Response: ${responseText || statusText}`;
-            
-        default:
-            return `HTTP Error ${status}: ${statusText}\n\n🐛 DEBUG INFO:\n• URL: ${response.url}\n• Current location: ${window.location.href}\n• Response: ${responseText.substring(0, 300)}...\n• Headers: ${JSON.stringify([...response.headers.entries()])}\n\nUnexpected error occurred while processing ${ticker}.\n\nError Details:\n• Status Code: ${status}\n• Status Text: ${statusText}\n• Timestamp: ${new Date().toISOString()}\n\nGeneral Troubleshooting:\n1. Verify internet connection\n2. Try a different stock symbol\n3. Refresh the page and try again\n4. Clear browser cache if issues persist\n\nServer Response: ${responseText || 'No additional details available'}`;
-    }
+    const targetEl = document.getElementById('lstmTargetPrice');
+    targetEl.textContent = `$${prediction.target_price.toFixed(2)}`;
+    targetEl.className = `lstm-stat-value ${isUp ? 'up' : 'down'}`;
+    
+    const changeEl = document.getElementById('lstmChange');
+    const changeSign = prediction.predicted_change_pct >= 0 ? '+' : '';
+    changeEl.textContent = `${changeSign}${prediction.predicted_change_pct.toFixed(2)}%`;
+    changeEl.className = `lstm-stat-value ${isUp ? 'up' : 'down'}`;
+    
+    document.getElementById('lstmConfidence').textContent = `${prediction.confidence.toFixed(1)}%`;
+    
+    const strengthEl = document.getElementById('lstmStrength');
+    strengthEl.textContent = prediction.strength;
+    strengthEl.className = `lstm-strength ${prediction.strength.toLowerCase()}`;
+    
+    const trainedDate = new Date(prediction.model_trained_at).toLocaleDateString();
+    document.getElementById('lstmMeta').textContent = 
+        `Model Accuracy: ${prediction.model_accuracy}% | AUC: ${prediction.model_auc} | Trained: ${trainedDate}`;
+    
+    container.classList.remove('loading');
+    container.classList.add('loaded');
 }
 
-async function getDetailedYahooErrorMessage(response, ticker) {
-    const status = response.status;
-    const statusText = response.statusText;
-    
-    let responseText = '';
-    try {
-        responseText = await response.text();
-    } catch (e) {
-        responseText = 'Unable to read Yahoo Finance error details';
-    }
-    
-    switch (status) {
-        case 400:
-            return `Yahoo Finance Bad Request (HTTP 400): Invalid request for ${ticker}.\n\nRequest Issues:\n• Ticker symbol format is incorrect\n• Invalid timeframe or date parameters\n• Malformed API request\n\nSymbol Format Guide:\n• US Stocks: AAPL, MSFT, GOOGL\n• Canadian: SHOP.TO, RY.TO\n• UK: LLOY.L, BP.L\n• Crypto: BTC-USD, ETH-USD\n• ETFs: SPY, QQQ, VTI\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 401:
-            return `Yahoo Finance Authentication Error (HTTP 401): Access denied.\n\nAuthentication Issues:\n• Yahoo Finance requires valid headers\n• Request may be blocked by anti-bot measures\n• IP address may be temporarily restricted\n\nThis is usually temporary. Solutions:\n• Wait 10-15 minutes and try again\n• Try from a different network\n• Use VPN if geographic restrictions apply\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 403:
-            return `Yahoo Finance Access Forbidden (HTTP 403): Request blocked for ${ticker}.\n\nAccess Restrictions:\n• Rate limiting in effect\n• Geographic restrictions\n• Yahoo Finance detecting automated requests\n• Symbol may be restricted\n\nImmediate Actions:\n1. Wait 15-30 minutes before retrying\n2. Try major symbols (AAPL) to test connectivity\n3. Check if symbol exists on Yahoo Finance website\n4. Try different timeframe (1mo instead of 5m)\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 404:
-            return `Yahoo Finance Not Found (HTTP 404): Symbol ${ticker} not found.\n\nSymbol Issues:\n• Ticker symbol does not exist\n• Symbol may be delisted or suspended\n• Incorrect exchange or format\n• Company may have changed ticker symbol\n\nVerification Steps:\n1. Check spelling: AAPL not APPL\n2. Search on finance.yahoo.com to confirm symbol\n3. Try without exchange suffix first\n4. Check if company was acquired or merged\n5. For international stocks, add proper suffix (.TO, .L, etc.)\n\nCommon Examples:\n• Apple: AAPL\n• Microsoft: MSFT\n• Tesla: TSLA\n• Amazon: AMZN\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 429:
-            return `Yahoo Finance Rate Limit (HTTP 429): Too many requests.\n\nRate Limiting Details:\n• Yahoo Finance limits requests per IP address\n• Temporary restriction to prevent abuse\n• Usually lasts 10-60 minutes\n\nCurrent Status:\n• Your IP has exceeded the request limit\n• This is a temporary block, not permanent\n• All symbols will be affected until limit resets\n\nRecommended Actions:\n1. Wait 30-60 minutes before trying again\n2. Avoid rapid successive requests\n3. Try using fewer requests per minute\n4. Consider using during off-peak hours\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 500:
-            return `Yahoo Finance Server Error (HTTP 500): Internal server problem.\n\nServer Issues:\n• Yahoo Finance experiencing technical difficulties\n• Database or processing errors\n• Temporary infrastructure problems\n• High load causing service degradation\n\nService Status:\n• This affects all users, not just you\n• Yahoo Finance team is likely aware of the issue\n• Service should restore automatically\n\nWhat to do:\n1. Wait 5-10 minutes and retry\n2. Try different symbols to test if widespread\n3. Check Yahoo Finance website directly\n4. Monitor for service restoration\n\nYahoo Response: ${responseText || statusText}`;
-            
-        case 502:
-        case 503:
-        case 504:
-            return `Yahoo Finance Service Unavailable (HTTP ${status}): Temporary outage.\n\nService Status:\n• Yahoo Finance API is temporarily down\n• Infrastructure maintenance or issues\n• Load balancing problems\n• Upstream service failures\n\nOutage Information:\n• This is a widespread service issue\n• Affects all users and symbols\n• Usually resolves within 15-30 minutes\n• No action required from your side\n\nMonitoring:\n1. Check status.yahoo.com for updates\n2. Try again every 10-15 minutes\n3. Test with simple symbols (AAPL) first\n4. Consider alternative data sources if urgent\n\nYahoo Response: ${responseText || statusText}`;
-            
-        default:
-            return `Yahoo Finance HTTP Error ${status}: Unexpected response.\n\nUnknown Error Details:\n• Status Code: ${status} (${statusText})\n• Symbol: ${ticker}\n• Timestamp: ${new Date().toISOString()}\n• Request URL: Yahoo Finance Chart API\n\nDiagnostic Information:\n• This is an unusual error code\n• May indicate new API changes or restrictions\n• Could be temporary infrastructure issues\n\nTroubleshooting:\n1. Try a different, well-known symbol (AAPL)\n2. Wait 15-30 minutes and retry\n3. Check Yahoo Finance website functionality\n4. Try different timeframes\n5. Report if error persists across multiple symbols\n\nYahoo Response: ${responseText || 'No additional details available'}`;
-    }
+function hideLstmPrediction() {
+    const container = document.getElementById('lstmPrediction');
+    container.classList.remove('loaded', 'loading');
 }
 
-function analyzeStockLocal(stockData) {
-    const closes = stockData.close.filter(price => price !== null);
-    const volumes = stockData.volume.filter(vol => vol !== null);
+async function fetchYahooFinanceData(ticker, timeframe) {
+    const now = Math.floor(Date.now() / 1000);
+    const timeframes = {
+        '3mo': { period1: now - (90 * 24 * 60 * 60), interval: '1d' },
+        '1y': { period1: now - (365 * 24 * 60 * 60), interval: '1d' },
+        '5y': { period1: now - (5 * 365 * 24 * 60 * 60), interval: '1d' },
+        'max': { period1: 0, interval: '1d' }
+    };
     
-    if (closes.length < 20) {
-        throw new Error('Insufficient data for analysis');
+    const config = timeframes[timeframe] || timeframes['1y'];
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${config.period1}&period2=${now}&interval=${config.interval}&includePrePost=false`;
+    
+    const corsProxies = [
+        'https://api.allorigins.win/raw?url=',
+        'https://corsproxy.io/?'
+    ];
+    
+    let response = null;
+    let lastError = null;
+    
+    for (const proxy of corsProxies) {
+        try {
+            const url = proxy + encodeURIComponent(yahooUrl);
+            response = await fetch(url);
+            if (response.ok) break;
+        } catch (e) {
+            lastError = e;
+            continue;
+        }
     }
     
-    // Simple technical analysis
-    const currentPrice = closes[closes.length - 1];
-    const sma20 = closes.slice(-20).reduce((a, b) => a + b) / 20;
-    const sma50 = closes.length >= 50 ? closes.slice(-50).reduce((a, b) => a + b) / 50 : sma20;
+    if (!response || !response.ok) {
+        throw new Error(`Failed to fetch data for ${ticker}. ${lastError?.message || 'Check if the ticker symbol is valid.'}`);
+    }
     
-    // Calculate RSI (simplified)
-    const rsi = calculateRSI(closes);
+    const data = await response.json();
+    if (!data.chart?.result?.[0]) throw new Error(`No data found for ${ticker}`);
     
-    // Calculate MACD (simplified)
-    const macd = calculateMACD(closes);
+    const result = data.chart.result[0];
+    const meta = result.meta;
+    const quote = result.indicators.quote[0];
+    const timestamps = result.timestamp || [];
     
-    let buySignals = 0;
-    let sellSignals = 0;
+    const prices = [];
+    for (let i = 0; i < timestamps.length; i++) {
+        if (quote.close[i] !== null) {
+            prices.push({
+                date: new Date(timestamps[i] * 1000),
+                open: quote.open[i],
+                high: quote.high[i],
+                low: quote.low[i],
+                close: quote.close[i],
+                volume: quote.volume[i]
+            });
+        }
+    }
     
-    // Price vs SMA analysis
-    if (currentPrice > sma20) buySignals++;
-    else sellSignals++;
-    
-    if (currentPrice > sma50) buySignals++;
-    else sellSignals++;
-    
-    // RSI analysis
-    if (rsi < 30) buySignals += 2; // Oversold
-    else if (rsi > 70) sellSignals += 2; // Overbought
-    else if (rsi < 50) sellSignals++;
-    else buySignals++;
-    
-    // MACD analysis
-    if (macd.macd > macd.signal) buySignals++;
-    else sellSignals++;
-    
-    // Determine recommendation
-    let recommendation;
-    const total = buySignals + sellSignals;
-    const buyPercentage = (buySignals / total) * 100;
-    
-    if (buyPercentage >= 70) recommendation = 'STRONG_BUY';
-    else if (buyPercentage >= 55) recommendation = 'BUY';
-    else if (buyPercentage >= 45) recommendation = 'WEAK_BUY';
-    else if (buyPercentage >= 30) recommendation = 'NEUTRAL';
-    else if (buyPercentage >= 20) recommendation = 'WEAK_SELL';
-    else if (buyPercentage >= 10) recommendation = 'SELL';
-    else recommendation = 'STRONG_SELL';
+    if (prices.length < 50) throw new Error(`Insufficient data for ${ticker}. Need at least 50 data points.`);
     
     return {
-        recommendation: recommendation,
-        buy_signals: buySignals,
-        sell_signals: sellSignals,
-        gemini_analysis: "🔧 Local Development Mode: AI analysis is only available when deployed to Netlify. Current analysis is based on technical indicators only."
+        ticker,
+        companyName: meta.longName || meta.shortName || ticker,
+        currency: meta.currency || 'USD',
+        exchange: meta.exchangeName || 'Unknown',
+        prices,
+        currentPrice: prices[prices.length - 1].close,
+        previousClose: prices[prices.length - 2]?.close || prices[prices.length - 1].close
     };
 }
 
-function calculateRSI(prices, period = 14) {
-    if (prices.length < period + 1) return 50;
+function calculateAllIndicators(data) {
+    const closes = data.prices.map(p => p.close);
+    const highs = data.prices.map(p => p.high);
+    const lows = data.prices.map(p => p.low);
+    const volumes = data.prices.map(p => p.volume);
+    const currentPrice = closes[closes.length - 1];
     
-    let gains = 0;
-    let losses = 0;
+    const movingAverages = calculateMovingAverages(closes, currentPrice);
+    const technicalIndicators = calculateTechnicalIndicators(closes, highs, lows, volumes, currentPrice);
     
-    for (let i = prices.length - period; i < prices.length; i++) {
-        const change = prices[i] - prices[i - 1];
-        if (change > 0) gains += change;
-        else losses -= change;
-    }
+    const maBuy = movingAverages.filter(ma => ma.smaAction === 'Buy').length + 
+                  movingAverages.filter(ma => ma.emaAction === 'Buy').length;
+    const maSell = movingAverages.filter(ma => ma.smaAction === 'Sell').length + 
+                   movingAverages.filter(ma => ma.emaAction === 'Sell').length;
     
-    const avgGain = gains / period;
-    const avgLoss = losses / period;
+    const techBuy = technicalIndicators.filter(t => t.action === 'Buy' || t.action === 'Oversold').length;
+    const techSell = technicalIndicators.filter(t => t.action === 'Sell' || t.action === 'Overbought').length;
+    const techNeutral = technicalIndicators.filter(t => t.action === 'Neutral' || t.action === 'High Volatility').length;
     
-    if (avgLoss === 0) return 100;
+    const totalBuy = maBuy + techBuy;
+    const totalSell = maSell + techSell;
     
-    const rs = avgGain / avgLoss;
-    return 100 - (100 / (1 + rs));
+    return {
+        movingAverages,
+        technicalIndicators,
+        summary: {
+            maBuy, maSell,
+            techBuy, techSell, techNeutral,
+            totalBuy, totalSell,
+            maVerdict: getVerdict(maBuy, maSell),
+            techVerdict: getVerdict(techBuy, techSell),
+            overallVerdict: getVerdict(totalBuy, totalSell)
+        }
+    };
 }
 
-function calculateMACD(prices) {
-    if (prices.length < 26) return { macd: 0, signal: 0 };
+function calculateMovingAverages(closes, currentPrice) {
+    const periods = [5, 10, 20, 50, 100, 200];
+    const results = [];
     
-    const ema12 = calculateEMA(prices, 12);
-    const ema26 = calculateEMA(prices, 26);
-    const macd = ema12 - ema26;
-    
-    return { macd: macd, signal: macd * 0.9 }; // Simplified signal line
+    for (const period of periods) {
+        if (closes.length >= period) {
+            const sma = calcSMA(closes, period);
+            const ema = calcEMA(closes, period);
+            results.push({
+                name: `MA${period}`,
+                period,
+                sma: sma,
+                smaAction: currentPrice > sma ? 'Buy' : 'Sell',
+                ema: ema,
+                emaAction: currentPrice > ema ? 'Buy' : 'Sell'
+            });
+        }
+    }
+    return results;
 }
 
-function calculateEMA(prices, period) {
-    if (prices.length < period) return prices[prices.length - 1];
+function calculateTechnicalIndicators(closes, highs, lows, volumes, currentPrice) {
+    const indicators = [];
     
-    const multiplier = 2 / (period + 1);
-    let ema = prices.slice(-period).reduce((a, b) => a + b) / period;
+    const rsiVal = calcRSI(closes, 14);
+    const rsiScore = rsiVal < 30 ? (30 - rsiVal) * 3.33 : rsiVal > 70 ? (70 - rsiVal) * 3.33 : (50 - rsiVal) * 0.5;
+    indicators.push({ name: 'RSI(14)', value: rsiVal, action: rsiVal < 30 ? 'Oversold' : rsiVal > 70 ? 'Overbought' : 'Neutral', score: Math.max(-100, Math.min(100, rsiScore)) });
     
-    for (let i = prices.length - period + 1; i < prices.length; i++) {
-        ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
-    }
+    const stoch = calcStochastic(closes, highs, lows, 9);
+    const stochScore = stoch.k < 20 ? (20 - stoch.k) * 5 : stoch.k > 80 ? (80 - stoch.k) * 5 : (50 - stoch.k) * 0.5;
+    indicators.push({ name: 'STOCH(9,6)', value: stoch.k, action: stoch.k < 20 ? 'Oversold' : stoch.k > 80 ? 'Overbought' : 'Neutral', score: Math.max(-100, Math.min(100, stochScore)) });
     
+    const stochRsi = calcStochRSI(closes, 14);
+    const stochRsiScore = (50 - stochRsi) * 2;
+    indicators.push({ name: 'STOCHRSI(14)', value: stochRsi, action: stochRsi < 20 ? 'Buy' : stochRsi > 80 ? 'Sell' : 'Neutral', score: Math.max(-100, Math.min(100, stochRsiScore)) });
+    
+    const macd = calcMACD(closes, 12, 26, 9);
+    const macdScore = Math.max(-100, Math.min(100, macd.histogram * 20));
+    indicators.push({ name: 'MACD(12,26)', value: macd.histogram, action: macd.histogram > 0 ? 'Buy' : 'Sell', score: macdScore });
+    
+    const adx = calcADX(closes, highs, lows, 14);
+    const priceUp = closes[closes.length-1] > closes[closes.length-2];
+    const adxScore = adx > 25 ? (priceUp ? Math.min(100, adx * 2) : Math.max(-100, -adx * 2)) : 0;
+    indicators.push({ name: 'ADX(14)', value: adx, action: adx > 25 ? (priceUp ? 'Buy' : 'Sell') : 'Neutral', score: adxScore });
+    
+    const williamsR = calcWilliamsR(closes, highs, lows, 14);
+    const wrScore = williamsR < -80 ? (-80 - williamsR) * 5 : williamsR > -20 ? (-20 - williamsR) * 5 : (williamsR + 50) * -1;
+    indicators.push({ name: 'Williams %R', value: williamsR, action: williamsR < -80 ? 'Oversold' : williamsR > -20 ? 'Overbought' : 'Sell', score: Math.max(-100, Math.min(100, wrScore)) });
+    
+    const cci = calcCCI(closes, highs, lows, 14);
+    const cciScore = Math.max(-100, Math.min(100, -cci * 0.5));
+    indicators.push({ name: 'CCI(14)', value: cci, action: cci < -100 ? 'Buy' : cci > 100 ? 'Sell' : 'Neutral', score: cciScore });
+    
+    const atr = calcATR(closes, highs, lows, 14);
+    const atrPct = (atr / currentPrice) * 100;
+    indicators.push({ name: 'ATR(14)', value: atr, action: atrPct > 3 ? 'High Volatility' : 'Neutral', score: 0 });
+    
+    const highsLows = calcHighsLows(closes, highs, lows, 14);
+    const hlScore = Math.max(-100, Math.min(100, highsLows));
+    indicators.push({ name: 'Highs/Lows(14)', value: highsLows, action: highsLows > 0 ? 'Buy' : 'Sell', score: hlScore });
+    
+    const ultimateOsc = calcUltimateOscillator(closes, highs, lows, 7, 14, 28);
+    const uoScore = (50 - ultimateOsc) * 2;
+    indicators.push({ name: 'Ultimate Oscillator', value: ultimateOsc, action: ultimateOsc < 30 ? 'Buy' : ultimateOsc > 70 ? 'Sell' : 'Neutral', score: Math.max(-100, Math.min(100, uoScore)) });
+    
+    const roc = calcROC(closes, 12);
+    const rocScore = Math.max(-100, Math.min(100, roc * 10));
+    indicators.push({ name: 'ROC', value: roc, action: roc > 0 ? 'Buy' : 'Sell', score: rocScore });
+    
+    const bullBear = calcBullBearPower(closes, highs, lows, 13);
+    const bbScore = Math.max(-100, Math.min(100, bullBear * 5));
+    indicators.push({ name: 'Bull/Bear Power(13)', value: bullBear, action: bullBear > 0 ? 'Buy' : 'Sell', score: bbScore });
+    
+    return indicators;
+}
+
+function calcSMA(data, period) {
+    return data.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function calcEMA(data, period) {
+    const k = 2 / (period + 1);
+    let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < data.length; i++) ema = data[i] * k + ema * (1 - k);
     return ema;
 }
 
-function showLoading() {
-    document.querySelector('.loading-spinner').style.display = 'block';
-}
-
-function hideLoading() {
-    document.querySelector('.loading-spinner').style.display = 'none';
-}
-
-function showError(message) {
-    const errorDiv = document.getElementById('errorMessage');
-    errorDiv.textContent = message;
-    errorDiv.style.display = 'block';
-}
-
-function hideError() {
-    document.getElementById('errorMessage').style.display = 'none';
-}
-
-function formatGeminiText(text) {
-    if (!text) return '';
-    
-    // Replace **bold** with <strong> tags
-    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // Replace line breaks with <br> tags
-    text = text.replace(/\n/g, '<br>');
-    
-    // Replace numbered lists (1. 2. 3.) with proper formatting
-    text = text.replace(/(\d+\.\s)/g, '<br><strong>$1</strong>');
-    
-    // Clean up any double <br> tags at the start
-    text = text.replace(/^<br>/, '');
-    
-    return text;
-}
-
-function showRecommendation(data) {
-    const card = document.getElementById('recommendationCard');
-    const icon = document.getElementById('recommendationIcon');
-    const text = document.getElementById('recommendationText');
-    const details = document.getElementById('recommendationDetails');
-    
-    // Remove all recommendation classes
-    card.className = 'recommendation-card';
-    
-    let iconHtml = '';
-    let recommendationText = '';
-    let cssClass = '';
-    
-    const recommendation = data.recommendation || 'NEUTRAL';
-    
-    switch (recommendation) {
-        case 'STRONG_BUY':
-            iconHtml = '<i class="fas fa-rocket fa-3x mb-3" style="color: #28a745;"></i>';
-            recommendationText = 'STRONG BUY';
-            cssClass = 'recommendation-strong-buy';
-            break;
-        case 'BUY':
-            iconHtml = '<i class="fas fa-arrow-up fa-3x mb-3" style="color: #28a745;"></i>';
-            recommendationText = 'BUY';
-            cssClass = 'recommendation-buy';
-            break;
-        case 'WEAK_BUY':
-            iconHtml = '<i class="fas fa-thumbs-up fa-3x mb-3" style="color: #20c997;"></i>';
-            recommendationText = 'WEAK BUY';
-            cssClass = 'recommendation-weak-buy';
-            break;
-        case 'NEUTRAL':
-            iconHtml = '<i class="fas fa-minus fa-3x mb-3" style="color: #6c757d;"></i>';
-            recommendationText = 'NEUTRAL';
-            cssClass = 'recommendation-neutral';
-            break;
-        case 'WEAK_SELL':
-            iconHtml = '<i class="fas fa-thumbs-down fa-3x mb-3" style="color: #fd7e14;"></i>';
-            recommendationText = 'WEAK SELL';
-            cssClass = 'recommendation-weak-sell';
-            break;
-        case 'SELL':
-            iconHtml = '<i class="fas fa-arrow-down fa-3x mb-3" style="color: #dc3545;"></i>';
-            recommendationText = 'SELL';
-            cssClass = 'recommendation-sell';
-            break;
-        case 'STRONG_SELL':
-            iconHtml = '<i class="fas fa-exclamation-triangle fa-3x mb-3" style="color: #dc3545;"></i>';
-            recommendationText = 'STRONG SELL';
-            cssClass = 'recommendation-strong-sell';
-            break;
-        default:
-            iconHtml = '<i class="fas fa-question fa-3x mb-3" style="color: #6c757d;"></i>';
-            recommendationText = 'UNKNOWN';
-            cssClass = 'recommendation-neutral';
+function calcRSI(closes, period) {
+    if (closes.length < period + 1) return 50;
+    let gains = 0, losses = 0;
+    for (let i = closes.length - period; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff > 0) gains += diff; else losses -= diff;
     }
-    
-    card.classList.add(cssClass);
-    icon.innerHTML = iconHtml;
-    text.innerHTML = `<strong>${recommendationText}</strong><br><span style="font-size: 0.9em;">${data.ticker || 'Stock'} - $${data.current_price ? data.current_price.toFixed(2) : 'N/A'}</span>`;
-    
-    let detailsHtml = '';
-    if (data.gemini_analysis) {
-        detailsHtml = data.gemini_analysis.replace(/\n/g, '<br>');
-    } else {
-        detailsHtml = `Analysis based on ${data.data_points || 'N/A'} data points over ${data.timeframe || 'selected'} period.`;
-        if (data.price_change_percent !== undefined) {
-            detailsHtml += `<br>Price change: ${data.price_change_percent >= 0 ? '+' : ''}${data.price_change_percent.toFixed(2)}%`;
-        }
+    if (losses === 0) return 100;
+    return 100 - (100 / (1 + (gains / period) / (losses / period)));
+}
+
+function calcStochastic(closes, highs, lows, kPeriod) {
+    const highestHigh = Math.max(...highs.slice(-kPeriod));
+    const lowestLow = Math.min(...lows.slice(-kPeriod));
+    const k = ((closes[closes.length - 1] - lowestLow) / (highestHigh - lowestLow)) * 100;
+    return { k: isNaN(k) ? 50 : k };
+}
+
+function calcStochRSI(closes, period) {
+    const rsiValues = [];
+    for (let i = period; i < closes.length; i++) rsiValues.push(calcRSI(closes.slice(i - period, i + 1), period));
+    if (rsiValues.length < period) return 50;
+    const recentRsi = rsiValues.slice(-period);
+    const maxRsi = Math.max(...recentRsi), minRsi = Math.min(...recentRsi);
+    if (maxRsi === minRsi) return 50;
+    return ((rsiValues[rsiValues.length - 1] - minRsi) / (maxRsi - minRsi)) * 100;
+}
+
+function calcMACD(closes, fast, slow, signal) {
+    const macdLine = calcEMA(closes, fast) - calcEMA(closes, slow);
+    const macdValues = [];
+    for (let i = slow; i < closes.length; i++) macdValues.push(calcEMA(closes.slice(0, i + 1), fast) - calcEMA(closes.slice(0, i + 1), slow));
+    const signalLine = macdValues.length >= signal ? macdValues.slice(-signal).reduce((a, b) => a + b, 0) / signal : macdLine;
+    return { macd: macdLine, signal: signalLine, histogram: macdLine - signalLine };
+}
+
+function calcADX(closes, highs, lows, period) {
+    if (closes.length < period * 2) return 25;
+    const trueRanges = [], plusDM = [], minusDM = [];
+    for (let i = 1; i < closes.length; i++) {
+        trueRanges.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i-1]), Math.abs(lows[i] - closes[i-1])));
+        const upMove = highs[i] - highs[i-1], downMove = lows[i-1] - lows[i];
+        plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+        minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
     }
-    
-    details.innerHTML = detailsHtml;
-    card.style.display = 'block';
+    const smoothTR = trueRanges.slice(-period).reduce((a, b) => a + b, 0);
+    const plusDI = (plusDM.slice(-period).reduce((a, b) => a + b, 0) / smoothTR) * 100;
+    const minusDI = (minusDM.slice(-period).reduce((a, b) => a + b, 0) / smoothTR) * 100;
+    const dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
+    return isNaN(dx) ? 25 : dx;
 }
 
-function hideRecommendation() {
-    document.getElementById('recommendationCard').style.display = 'none';
+function calcWilliamsR(closes, highs, lows, period) {
+    const highestHigh = Math.max(...highs.slice(-period));
+    const lowestLow = Math.min(...lows.slice(-period));
+    return ((highestHigh - closes[closes.length - 1]) / (highestHigh - lowestLow)) * -100;
 }
 
-async function fetchStockDataLocal(ticker, timeframe) {
-    const now = Math.floor(Date.now() / 1000);
-    const periods = {
-        '5m': { 
-            period1: now - (24 * 60 * 60), // 1 day ago
-            period2: now,
-            interval: '5m' 
-        },
-        '1mo': { 
-            period1: now - (30 * 24 * 60 * 60), // 30 days ago
-            period2: now,
-            interval: '1d' 
-        },
-        '3mo': { 
-            period1: now - (90 * 24 * 60 * 60), // 90 days ago
-            period2: now,
-            interval: '1d' 
-        },
-        '6mo': { 
-            period1: now - (180 * 24 * 60 * 60), // 180 days ago
-            period2: now,
-            interval: '1d' 
-        },
-        '1y': { 
-            period1: now - (365 * 24 * 60 * 60), // 365 days ago
-            period2: now,
-            interval: '1d' 
-        },
-        '2y': { 
-            period1: now - (2 * 365 * 24 * 60 * 60), // 2 years ago
-            period2: now,
-            interval: '1d' 
-        }
-    };
+function calcCCI(closes, highs, lows, period) {
+    const typicalPrices = closes.map((c, i) => (highs[i] + lows[i] + c) / 3);
+    const recentTP = typicalPrices.slice(-period);
+    const smaTP = recentTP.reduce((a, b) => a + b, 0) / period;
+    const meanDev = recentTP.reduce((sum, tp) => sum + Math.abs(tp - smaTP), 0) / period;
+    return (typicalPrices[typicalPrices.length - 1] - smaTP) / (0.015 * meanDev);
+}
+
+function calcATR(closes, highs, lows, period) {
+    const trueRanges = [];
+    for (let i = 1; i < closes.length; i++) trueRanges.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    return trueRanges.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function calcHighsLows(closes, highs, lows, period) {
+    const highestHigh = Math.max(...highs.slice(-period));
+    const lowestLow = Math.min(...lows.slice(-period));
+    return ((closes[closes.length - 1] - (highestHigh + lowestLow) / 2) / (highestHigh - lowestLow)) * 100;
+}
+
+function calcUltimateOscillator(closes, highs, lows, short, medium, long) {
+    if (closes.length < long + 1) return 50;
+    const bp = [], tr = [];
+    for (let i = 1; i < closes.length; i++) {
+        bp.push(closes[i] - Math.min(lows[i], closes[i - 1]));
+        tr.push(Math.max(highs[i], closes[i - 1]) - Math.min(lows[i], closes[i - 1]));
+    }
+    const avgS = bp.slice(-short).reduce((a,b)=>a+b,0) / tr.slice(-short).reduce((a,b)=>a+b,0);
+    const avgM = bp.slice(-medium).reduce((a,b)=>a+b,0) / tr.slice(-medium).reduce((a,b)=>a+b,0);
+    const avgL = bp.slice(-long).reduce((a,b)=>a+b,0) / tr.slice(-long).reduce((a,b)=>a+b,0);
+    return ((avgS * 4) + (avgM * 2) + avgL) / 7 * 100;
+}
+
+function calcROC(closes, period) {
+    return ((closes[closes.length - 1] - closes[closes.length - 1 - period]) / closes[closes.length - 1 - period]) * 100;
+}
+
+function calcBullBearPower(closes, highs, lows, period) {
+    const ema = calcEMA(closes, period);
+    return (highs[highs.length - 1] - ema) + (lows[lows.length - 1] - ema);
+}
+
+function getVerdict(buy, sell) {
+    const total = buy + sell;
+    if (total === 0) return 'Neutral';
+    const ratio = buy / total;
+    if (ratio >= 0.7) return 'Strong Buy';
+    if (ratio >= 0.55) return 'Buy';
+    if (ratio <= 0.3) return 'Strong Sell';
+    if (ratio <= 0.45) return 'Sell';
+    return 'Neutral';
+}
+
+async function getGeminiAnalysis(ticker, analysis, stockData, lstmPrediction = null) {
+    const sortedIndicators = [...analysis.technicalIndicators].sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+    const strongestBullish = sortedIndicators.filter(i => i.score > 20).slice(0, 3);
+    const strongestBearish = sortedIndicators.filter(i => i.score < -20).slice(0, 3);
     
-    const config = periods[timeframe] || periods['1mo'];
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?period1=${config.period1}&period2=${config.period2}&interval=${config.interval}&includePrePost=false&events=div%2Csplit`;
+    const maScores = analysis.movingAverages.map(ma => {
+        const smaScore = ma.smaAction === 'Buy' ? 50 : -50;
+        const emaScore = ma.emaAction === 'Buy' ? 50 : -50;
+        return { name: ma.name, score: (smaScore + emaScore) / 2 };
+    });
+    const strongestMABullish = maScores.filter(m => m.score > 0).slice(0, 2);
+    const strongestMABearish = maScores.filter(m => m.score < 0).slice(0, 2);
     
-    console.log(`DEBUG: Fetching ${ticker} with URL:`, url);
+    const lstmSection = lstmPrediction ? `
+LSTM AI PREDICTION (5-Day Forecast):
+- Direction: ${lstmPrediction.direction}
+- Current Price: $${lstmPrediction.current_price.toFixed(2)}
+- Target Price: $${lstmPrediction.target_price.toFixed(2)}
+- Predicted Change: ${lstmPrediction.predicted_change_pct >= 0 ? '+' : ''}${lstmPrediction.predicted_change_pct.toFixed(2)}%
+- Confidence: ${lstmPrediction.confidence.toFixed(1)}%
+- Signal Strength: ${lstmPrediction.strength}
+- Model Accuracy: ${lstmPrediction.model_accuracy}%
+` : '';
     
+    const prompt = `You are a professional stock analyst. Provide a complete analysis for ${ticker} (${stockData.companyName}).
+
+Current Price: $${stockData.currentPrice.toFixed(2)}
+Price Change: ${((stockData.currentPrice - stockData.previousClose) / stockData.previousClose * 100).toFixed(2)}%
+${lstmSection}
+OVERALL VERDICT: ${analysis.summary.overallVerdict}
+
+MOVING AVERAGES: ${analysis.summary.maVerdict} (Buy: ${analysis.summary.maBuy}, Sell: ${analysis.summary.maSell})
+${analysis.movingAverages.map(ma => `${ma.name}: SMA=${ma.sma.toFixed(2)} (${ma.smaAction}), EMA=${ma.ema.toFixed(2)} (${ma.emaAction})`).join('\n')}
+
+TECHNICAL INDICATORS WITH SCORES (-100=Strong Sell, +100=Strong Buy):
+${analysis.technicalIndicators.map(t => `${t.name}: ${t.value.toFixed(2)} (${t.action}) [Score: ${t.score.toFixed(0)}]`).join('\n')}
+
+STRONGEST BULLISH SIGNALS:
+${strongestBullish.length > 0 ? strongestBullish.map(i => `- ${i.name}: Score ${i.score.toFixed(0)}`).join('\n') : '- None significant'}
+${strongestMABullish.length > 0 ? strongestMABullish.map(m => `- ${m.name} (MA): Score ${m.score.toFixed(0)}`).join('\n') : ''}
+
+STRONGEST BEARISH SIGNALS:
+${strongestBearish.length > 0 ? strongestBearish.map(i => `- ${i.name}: Score ${i.score.toFixed(0)}`).join('\n') : '- None significant'}
+${strongestMABearish.length > 0 ? strongestMABearish.map(m => `- ${m.name} (MA): Score ${m.score.toFixed(0)}`).join('\n') : ''}
+
+Write a 3-4 paragraph analysis that:
+1. States the overall recommendation clearly${lstmPrediction ? ', integrating both technical indicators AND the LSTM AI prediction' : ''}
+2. Specifically references the STRONGEST indicators by name that support this recommendation
+3. ${lstmPrediction ? 'Discuss whether the LSTM prediction aligns with or conflicts with technical indicators' : 'Mentions any conflicting signals'}
+4. Provides key price levels${lstmPrediction ? ` (including the LSTM target of $${lstmPrediction.target_price.toFixed(2)})` : ''} and risks
+
+Be specific about which indicators are driving the recommendation.`;
+
     try {
-        const response = await fetch(url);
-        
-        console.log(`DEBUG: Response status: ${response.status} ${response.statusText}`);
-        
-        if (!response.ok) {
-            const errorDetails = await getDetailedYahooErrorMessage(response, ticker);
-            throw new Error(errorDetails);
-        }
-        
-        const text = await response.text();
-        console.log(`DEBUG: Response length: ${text.length} characters`);
-        console.log(`DEBUG: Response preview:`, text.substring(0, 200));
-        
-        if (!text) {
-            throw new Error(`Empty Response from Yahoo Finance: No data returned for ${ticker}.\n\nPossible causes:\n• Yahoo Finance API is temporarily unavailable\n• Network connectivity issues\n• Symbol may be invalid or delisted\n\nSuggestions:\n• Try again in a few moments\n• Verify the ticker symbol is correct\n• Check if the market is currently open`);
-        }
-        
-        let data;
-        try {
-            data = JSON.parse(text);
-        } catch (parseError) {
-            console.error('DEBUG: JSON Parse Error:', parseError);
-            throw new Error(`Yahoo Finance Data Parse Error: Unable to process response for ${ticker}.\n\nTechnical Details:\n• Parse Error: ${parseError.message}\n• Response Length: ${text.length} characters\n• Response Preview: ${text.substring(0, 150)}...\n\nThis indicates Yahoo Finance returned invalid data. Please try again or use a different symbol.`);
-        }
-        
-        console.log(`DEBUG: Parsed data structure:`, Object.keys(data));
-        if (data.chart) {
-            console.log(`DEBUG: Chart result count:`, data.chart.result?.length || 0);
-        }
-        
-        if (!data.chart || !data.chart.result || data.chart.result.length === 0) {
-            console.error('DEBUG: No chart data found:', data);
-            throw new Error(`No Stock Data Available: Yahoo Finance returned empty results for ${ticker}.\n\nDetailed Analysis:\n• The symbol may not exist on supported exchanges\n• The company may be delisted or suspended from trading\n• Regional restrictions may apply\n• Symbol format may be incorrect\n\nTroubleshooting:\n1. Verify ticker spelling (e.g., AAPL not APPL)\n2. Try major symbols: AAPL, MSFT, GOOGL, TSLA\n3. Add exchange suffix if needed (.TO for Toronto, .L for London)\n4. For crypto, use format like BTC-USD\n\nYahoo Finance Response: ${JSON.stringify(data).substring(0, 200)}...`);
-        }
-        
-        const result = data.chart.result[0];
-        const timestamps = result.timestamp;
-        const quote = result.indicators.quote[0];
-        
-        console.log(`DEBUG: Data points - timestamps: ${timestamps?.length || 0}, quote keys:`, Object.keys(quote || {}));
-        
-        if (!timestamps || !quote) {
-            throw new Error(`Invalid Data Structure: Yahoo Finance returned malformed data for ${ticker}.\n\nData Issues Found:\n• Missing timestamps: ${!timestamps}\n• Missing quote data: ${!quote}\n• Result structure: ${JSON.stringify(Object.keys(result))}\n\nThis usually indicates:\n• Temporary API issues\n• Symbol format problems\n• Data availability restrictions\n\nSolutions:\n• Try a different timeframe\n• Use a more common stock symbol\n• Wait and retry in a few minutes`);
-        }
-        
-        if (!quote.close || quote.close.length === 0) {
-            throw new Error(`No Price Data: Yahoo Finance has no closing prices for ${ticker}.\n\nPossible reasons:\n• Symbol is not actively traded\n• Market is closed and no recent data available\n• Symbol represents a delisted security\n• Timeframe selected has no data\n\nRecommendations:\n• Try a different timeframe (1mo or 3mo)\n• Use actively traded symbols (AAPL, MSFT, GOOGL)\n• Check if the market is currently open\n• Verify the company is still publicly traded`);
-        }
-        
-        console.log(`DEBUG: Successfully fetched ${quote.close.length} price points for ${ticker}`);
-        
-        return {
-            timestamps: timestamps,
-            open: quote.open,
-            high: quote.high,
-            low: quote.low,
-            close: quote.close,
-            volume: quote.volume
-        };
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.7, maxOutputTokens: 2500 } })
+        });
+        if (!response.ok) throw new Error('Gemini API error');
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || 'AI analysis unavailable.';
     } catch (error) {
-        // If it's already our custom error, re-throw it
-        if (error.message.includes('Yahoo Finance') || error.message.includes('HTTP')) {
-            throw error;
-        }
-        
-        // Handle network and other unexpected errors
-        console.error('Unexpected error fetching stock data:', error);
-        throw new Error(`Network/Connection Error: Unable to fetch data for ${ticker}.\n\nError Details:\n• Error Type: ${error.name || 'Unknown'}\n• Error Message: ${error.message}\n• Timestamp: ${new Date().toISOString()}\n\nCommon Causes:\n• Internet connection issues\n• Firewall or proxy blocking requests\n• Yahoo Finance API temporarily down\n• Browser security restrictions (CORS)\n\nSolutions:\n1. Check your internet connection\n2. Try refreshing the page\n3. Disable browser extensions temporarily\n4. Try a different network if possible\n5. Wait 5-10 minutes and retry`);
+        return `AI analysis unavailable. Overall verdict: ${analysis.summary.overallVerdict}`;
     }
 }
+
+function displayResults(ticker, stockData, analysis, aiExplanation) {
+    document.getElementById('tickerDisplay').textContent = ticker;
+    document.getElementById('companyName').textContent = stockData.companyName;
+    document.getElementById('currentPrice').textContent = `$${stockData.currentPrice.toFixed(2)}`;
+    
+    const change = stockData.currentPrice - stockData.previousClose;
+    const changePercent = (change / stockData.previousClose) * 100;
+    const changeEl = document.getElementById('priceChange');
+    changeEl.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)} (${changePercent.toFixed(2)}%)`;
+    changeEl.className = `change ${change >= 0 ? 'positive' : 'negative'}`;
+    
+    document.getElementById('dataInfo').textContent = `Data points: ${stockData.prices.length} | Updated: ${new Date().toLocaleString()}`;
+    
+    updateGauge('tech', analysis.summary.techVerdict, analysis.summary.techBuy, analysis.summary.techSell);
+    updateGauge('summary', analysis.summary.overallVerdict, analysis.summary.totalBuy, analysis.summary.totalSell);
+    updateGauge('ma', analysis.summary.maVerdict, analysis.summary.maBuy, analysis.summary.maSell);
+    
+    const overallEl = document.getElementById('overallSummary');
+    overallEl.textContent = analysis.summary.overallVerdict;
+    overallEl.style.color = getVerdictColor(analysis.summary.overallVerdict);
+    
+    document.getElementById('maSummaryLabel').textContent = analysis.summary.maVerdict;
+    document.getElementById('maBuyCount').textContent = analysis.summary.maBuy;
+    document.getElementById('maSellCount').textContent = analysis.summary.maSell;
+    
+    document.getElementById('techSummaryLabel').textContent = analysis.summary.techVerdict;
+    document.getElementById('techBuyCount').textContent = analysis.summary.techBuy;
+    document.getElementById('techNeutralCount').textContent = analysis.summary.techNeutral;
+    document.getElementById('techSellCount').textContent = analysis.summary.techSell;
+    
+    document.getElementById('maTableBody').innerHTML = analysis.movingAverages.map(ma => `
+        <tr><td class="name">${ma.name}</td><td class="value">${ma.sma.toFixed(2)}</td><td class="action-${ma.smaAction.toLowerCase()}">${ma.smaAction}</td><td class="value">${ma.ema.toFixed(2)}</td><td class="action-${ma.emaAction.toLowerCase()}">${ma.emaAction}</td></tr>
+    `).join('');
+    
+    document.getElementById('maTableSummary').textContent = analysis.summary.maVerdict;
+    document.getElementById('maTableBuy').textContent = analysis.summary.maBuy;
+    document.getElementById('maTableSell').textContent = analysis.summary.maSell;
+    
+    document.getElementById('techTableBody').innerHTML = analysis.technicalIndicators.map(t => {
+        const ac = t.action === 'Buy' || t.action === 'Oversold' ? 'buy' : t.action === 'Sell' || t.action === 'Overbought' ? 'sell' : 'neutral';
+        return `<tr><td class="name">${t.name}</td><td class="value">${t.value.toFixed(t.name.includes('ATR') ? 4 : 2)}</td><td class="action-${ac}">${t.action}</td></tr>`;
+    }).join('');
+    
+    document.getElementById('techTableSummary').textContent = analysis.summary.techVerdict;
+    document.getElementById('techTableBuy').textContent = analysis.summary.techBuy;
+    document.getElementById('techTableNeutral').textContent = analysis.summary.techNeutral;
+    document.getElementById('techTableSell').textContent = analysis.summary.techSell;
+    
+    document.getElementById('aiAnalysisContent').textContent = aiExplanation;
+}
+
+function updateGauge(prefix, verdict, buy, sell) {
+    const needle = document.getElementById(`${prefix}Needle`);
+    const label = document.getElementById(`${prefix}Label`);
+    const total = buy + sell;
+    const ratio = total > 0 ? buy / total : 0.5;
+    needle.style.transform = `translateX(-50%) rotate(${-90 + (ratio * 180)}deg)`;
+    label.textContent = verdict;
+    label.className = 'gauge-label ' + getLabelClass(verdict);
+}
+
+function getLabelClass(verdict) {
+    switch (verdict) {
+        case 'Strong Buy': return 'label-strong-buy';
+        case 'Buy': return 'label-buy';
+        case 'Strong Sell': return 'label-strong-sell';
+        case 'Sell': return 'label-sell';
+        default: return 'label-neutral';
+    }
+}
+
+function getVerdictColor(verdict) {
+    switch (verdict) {
+        case 'Strong Buy': return '#26a69a';
+        case 'Buy': return '#66bb6a';
+        case 'Strong Sell': return '#ef5350';
+        case 'Sell': return '#ffab40';
+        default: return '#787b86';
+    }
+}
+
+function showLoading() { document.getElementById('loadingSpinner').style.display = 'block'; }
+function hideLoading() { document.getElementById('loadingSpinner').style.display = 'none'; }
+function showError(msg) { const el = document.getElementById('errorMessage'); el.textContent = msg; el.style.display = 'block'; }
+function hideError() { document.getElementById('errorMessage').style.display = 'none'; }
+function showResults() { document.getElementById('resultsSection').style.display = 'block'; }
+function hideResults() { document.getElementById('resultsSection').style.display = 'none'; }
