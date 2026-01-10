@@ -102,7 +102,6 @@
         .results-section {
             display: none;
         }
-        /* LSTM Prediction Section */
         .lstm-prediction {
             background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%);
             border-radius: 12px;
@@ -382,27 +381,18 @@
         <div class="header">
             <img src="traderbot.png" alt="Trader Bot">
             <h1>AI Trader Bot</h1>
-            <p>Advanced Technical Analysis with AI-Powered Insights</p>
+            <p>Uses 1 year of data (31 indicators) to predict price movement in next 5 days</p>
         </div>
 
         <div class="search-section">
             <form id="traderBotForm" onsubmit="return false;">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-5">
+                    <div class="col-md-8">
                         <label class="form-label text-muted small">Stock Ticker</label>
                         <input type="text" class="form-control search-input" id="tickerInput" 
                                placeholder="e.g., AAPL, TSLA, MSFT" required>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label text-muted small">Timeframe</label>
-                        <select class="form-control search-select" id="timeframeSelect">
-                            <option value="3mo">3 Months</option>
-                            <option value="1y" selected>1 Year</option>
-                            <option value="5y">5 Years</option>
-                            <option value="max">All Time</option>
-                        </select>
-                    </div>
-                    <div class="col-md-3">
                         <button type="button" id="analyzeBtn" class="btn analyze-btn w-100">
                             <i class="fas fa-chart-line me-2"></i>Analyze
                         </button>

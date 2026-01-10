@@ -1,7 +1,18 @@
-const GEMINI_API_KEY = 'AIzaSyBFChF21jntZY8Jt0gpAn5JQcZPz7weYtA';
+let GEMINI_API_KEY = '';
 const LSTM_API_URL = '';
 
-document.addEventListener('DOMContentLoaded', () => {
+async function loadConfig() {
+    try {
+        const response = await fetch('/api/config');
+        const config = await response.json();
+        GEMINI_API_KEY = config.gemini_api_key;
+    } catch (error) {
+        console.error('Failed to load config:', error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadConfig();
     document.getElementById('analyzeBtn').addEventListener('click', handleAnalysis);
     document.getElementById('tickerInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -13,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function handleAnalysis() {
     const ticker = document.getElementById('tickerInput').value.trim().toUpperCase();
-    const timeframe = document.getElementById('timeframeSelect').value;
+    const timeframe = '1y';
     
     if (!ticker) {
         showError('Please enter a stock ticker symbol');

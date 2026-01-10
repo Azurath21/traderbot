@@ -1,9 +1,13 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import json
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_from_directory
+
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -393,6 +397,11 @@ def pretrain_models(tickers):
             print(f"{ticker}: Accuracy={res['accuracy']*100:.2f}%, AUC={res['auc']:.4f} ({res['status']})")
     
     return results
+
+
+@app.route('/api/config')
+def get_config():
+    return jsonify({'gemini_api_key': GEMINI_API_KEY})
 
 
 @app.route('/')
